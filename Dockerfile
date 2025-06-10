@@ -36,21 +36,12 @@ RUN groupadd --system --gid 1000 www-data && \
     chown -R www-data:www-data /app/app_logs /app/uploads
 
 # --- Copy Application Code ---
-# Copy the code after setting up users and directories.
 COPY . .
-# Ensure the copied code is also owned by the non-root user.
+
 RUN chown -R www-data:www-data /app
 
-# Switch to the non-root user for running the application.
 USER www-data
 
-# --- Expose Port ---
-# Inform Docker that the container listens on this port.
-# This uses the ENV variable defined above.
 EXPOSE ${PORT}
 
-# --- Run Command (Optimized for Production) ---
-# Use 'exec' to ensure Gunicorn is the main process (PID 1) for proper signal handling.
-# Bind to the $PORT variable provided by the environment.
-# Increased workers for better performance.
 CMD exec gunicorn --bind :${PORT} --workers 2 --threads 4 --log-level=info "app:app"
