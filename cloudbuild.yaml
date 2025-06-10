@@ -1,0 +1,64 @@
+steps:
+  # 1. Build the Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [
+        'build',
+        '-t',
+        'asia-southeast2-docker.pkg.dev/${PROJECT_ID}/transcribe-medical/flask-app:${COMMIT_SHA}',
+        '-t',
+        'asia-southeast2-docker.pkg.dev/${PROJECT_ID}/transcribe-medical/flask-app:latest',
+        '.'
+      ]
+    id: 'Build Docker Image'
+
+  # 2. Push the Docker image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'asia-southeast2-docker.pkg.dev/${PROJECT_ID}/transcribe-medical/flask-app:${COMMIT_SHA}']
+    id: 'Push Image (Commit SHA)'
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'asia-southeast2-docker.pkg.dev/${PROJECT_ID}/transcribe-medical/flask-app:latest']
+    id: 'Push Image (Latest)'
+
+  # 3. Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'troubleshooting-assistant' # Name of your Cloud Run service
+      - '--image'
+      - 'asia-southeast2-docker.pkg.dev/${PROJECT_ID}/transcribe-medical/flask-app:${COMMIT_SHA}'
+      - '--region'
+      - 'asia-southeast2'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated' # Or use '--no-allow-unauthenticated' and set up IAM
+      - '--port'
+      - '8080' # Port your container listens on (matches EXPOSE in Dockerfile and Gunicorn bind)
+      # Set environment variables for Cloud Run service.
+      # These override any ENV directives in the Dockerfile at runtime.
+      # IMPORTANT: Do NOT put secrets directly here.
+      # For secrets, use Secret Manager and reference them:
+      #   --set-secrets=ENV_VAR_NAME=secret-name:version
+      # Since you specified not to use Secret Manager for now, we set them directly.
+      # You'll need to replace these with your actual values or use substitutions.
+      - '--set-env-vars=PROJECT_ID=${PROJECT_ID}' # PROJECT_ID is available as a default substitution
+      # Add any other environment variables your application needs
+      # Example: - '--set-env-vars=ANOTHER_VAR=another_value'
+    id: 'Deploy to Cloud Run'
+
+# Specify machine type for Cloud Build
+options:
+  machineType: 'E2_MEDIUM'
+  logging: CLOUD_LOGGING_ONLY
+
+# Define images to be pushed to Artifact Registry
+images:
+  - 'asia-southeast2-docker.pkg.dev/${PROJECT_ID}/transcribe-medical/flask-app:${COMMIT_SHA}'
+  - 'asia-southeast2-docker.pkg.dev/${PROJECT_ID}/transcribe-medical/flask-app:latest'
+
+# Define substitutions (variables for your build)
+
+
+# Timeout for the build
+timeout: '1200s' # 20 minutes

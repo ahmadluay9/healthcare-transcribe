@@ -1,0 +1,6 @@
+google-cloud-speech
+pydub
+google-genai
+flask
+python-dotenv
+gunicorn

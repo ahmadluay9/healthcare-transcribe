@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Analyzer with Gemini</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; padding: 20px; max-width: 900px; margin: auto; background-color: #f4f7f9; }
+        h1, h2, h3 { color: #333; }
+        #container { background-color: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .input-section { border: 1px dashed #ccc; padding: 20px; border-radius: 5px; margin-top: 20px; }
+        input[type="file"] { border: 1px solid #ccc; padding: 10px; border-radius: 4px; width: 100%; box-sizing: border-box; }
+        button { background-color: #007bff; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; margin-top: 10px; transition: background-color 0.3s; }
+        button:disabled { background-color: #a0cfff; cursor: not-allowed; }
+        button.record-btn { background-color: #28a745; }
+        button.pause-btn { background-color: #ffc107; color: #333; }
+        button.stop-btn { background-color: #dc3545; }
+        #recordingControls button { margin-right: 10px; }
+        #loader { display: none; text-align: center; margin-top: 20px; font-weight: bold; color: #555; }
+        #results { margin-top: 30px; }
+        pre { background-color: #e9ecef; padding: 15px; border-radius: 4px; white-space: pre-wrap; word-wrap: break-word; font-family: "Courier New", Courier, monospace; }
+        .result-box { border: 1px solid #ddd; padding: 0 20px 20px 20px; border-radius: 5px; margin-top: 20px; }
+        .error { color: #d93025; font-weight: bold; margin-top: 15px; }
+        #recordingStatus { font-weight: bold; color: #dc3545; height: 20px;}
+    </style>
+    <!-- Using a CDN for the Marked.js library to render Markdown -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+
+    <div id="container">
+        <h1>Audio Transcript and Analysis</h1>
+        
+        <!-- Section for Recording Audio -->
+        <div class="input-section">
+            <h3>Record Audio Directly</h3>
+            <p>Your browser will ask for microphone permission.</p>
+            <div id="recordingControls">
+                <button id="startButton" class="record-btn">Start Recording</button>
+                <button id="pauseButton" class="pause-btn" style="display:none;">Pause</button>
+                <button id="resumeButton" class="record-btn" style="display:none;">Resume</button>
+                <button id="stopButton" class="stop-btn" style="display:none;">Stop Recording</button>
+            </div>
+            <div id="recordingStatus"></div>
+        </div>
+
+        <!-- Section for Uploading a File -->
+        <div class="input-section">
+            <h3>Or Upload an Audio File</h3>
+            <input type="file" id="audioFileInput" accept="audio/*">
+        </div>
+
+        <button id="analyzeButton">Analyze Audio</button>
+
+        <div id="loader">
+            <p>Processing... This may take a minute for longer audio files.</p>
+        </div>
+        
+        <div id="error-message" class="error"></div>
+
+        <div id="results">
+            <div id="transcript-container" class="result-box" style="display: none;">
+                <h2>Transcript</h2>
+                <pre id="transcriptOutput"></pre>
+            </div>
+            <div id="analysis-container" class="result-box" style="display: none;">
+                <h2>Gemini Analysis</h2>
+                <div id="analysisOutput"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- DOM Element References ---
+        const startButton = document.getElementById('startButton');
+        const pauseButton = document.getElementById('pauseButton');
+        const resumeButton = document.getElementById('resumeButton');
+        const stopButton = document.getElementById('stopButton');
+        const recordingStatus = document.getElementById('recordingStatus');
+        
+        const audioFileInput = document.getElementById('audioFileInput');
+        const analyzeButton = document.getElementById('analyzeButton');
+        const loader = document.getElementById('loader');
+        
+        const resultsDiv = document.getElementById('results');
+        const transcriptContainer = document.getElementById('transcript-container');
+        const analysisContainer = document.getElementById('analysis-container');
+        const transcriptOutput = document.getElementById('transcriptOutput');
+        const analysisOutput = document.getElementById('analysisOutput');
+        const errorMessage = document.getElementById('error-message');
+
+        // --- MediaRecorder State Variables ---
+        let mediaRecorder;
+        let audioChunks = [];
+        let recordedBlob = null;
+        let stream = null;
+
+        // --- UI State Management ---
+        function updateButtonStates(isRecording, isPaused) {
+            startButton.style.display = isRecording ? 'none' : 'inline-block';
+            stopButton.style.display = isRecording ? 'inline-block' : 'none';
+            pauseButton.style.display = isRecording && !isPaused ? 'inline-block' : 'none';
+            resumeButton.style.display = isRecording && isPaused ? 'inline-block' : 'none';
+        }
+
+        // --- Recording Logic ---
+        startButton.addEventListener('click', async () => {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                alert('Your browser does not support audio recording.');
+                return;
+            }
+            try {
+                // Request microphone access
+                stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                // Clear previous recording data
+                audioChunks = [];
+                recordedBlob = null;
+                
+                mediaRecorder = new MediaRecorder(stream);
+
+                mediaRecorder.ondataavailable = event => {
+                    audioChunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = () => {
+                    // Combine chunks into a single Blob
+                    recordedBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    recordingStatus.textContent = 'Recording stopped. Ready to analyze.';
+                    // Clean up the stream resources
+                    stream.getTracks().forEach(track => track.stop());
+                };
+
+                mediaRecorder.start();
+                recordingStatus.textContent = 'Recording...';
+                updateButtonStates(true, false);
+
+            } catch (error) {
+                console.error('Error accessing microphone:', error);
+                recordingStatus.textContent = 'Error: Could not access microphone.';
+            }
+        });
+
+        pauseButton.addEventListener('click', () => {
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.pause();
+                recordingStatus.textContent = 'Recording paused.';
+                updateButtonStates(true, true);
+            }
+        });
+
+        resumeButton.addEventListener('click', () => {
+            if (mediaRecorder && mediaRecorder.state === 'paused') {
+                mediaRecorder.resume();
+                recordingStatus.textContent = 'Recording...';
+                updateButtonStates(true, false);
+            }
+        });
+
+        stopButton.addEventListener('click', () => {
+            if (mediaRecorder && (mediaRecorder.state === 'recording' || mediaRecorder.state === 'paused')) {
+                mediaRecorder.stop();
+                updateButtonStates(false, false);
+            }
+        });
+
+        // --- Analysis Logic (Handles both recorded and uploaded audio) ---
+        analyzeButton.addEventListener('click', async () => {
+            const uploadedFile = audioFileInput.files[0];
+
+            if (!recordedBlob && !uploadedFile) {
+                alert("Please record audio or select an audio file first.");
+                return;
+            }
+
+            // Reset UI
+            loader.style.display = 'block';
+            analyzeButton.disabled = true;
+            resultsDiv.style.display = 'none';
+            transcriptContainer.style.display = 'none';
+            analysisContainer.style.display = 'none';
+            errorMessage.textContent = '';
+
+            const formData = new FormData();
+            if (recordedBlob) {
+                // Use the recorded audio
+                formData.append('audioFile', recordedBlob, 'recording.webm');
+            } else {
+                // Use the uploaded file
+                formData.append('audioFile', uploadedFile);
+            }
+
+            try {
+                const response = await fetch('/analyze', {
+                    method: 'POST',
+                    body: formData,
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || `Server responded with status ${response.status}`);
+                }
+
+                // Display results
+                transcriptOutput.textContent = data.transcript;
+                analysisOutput.innerHTML = marked.parse(data.analysis); // Use marked.js to render Markdown
+                
+                resultsDiv.style.display = 'block';
+                transcriptContainer.style.display = 'block';
+                analysisContainer.style.display = 'block';
+
+            } catch (error) {
+                console.error('Error:', error);
+                errorMessage.textContent = `An error occurred: ${error.message}`;
+            } finally {
+                // Always hide loader and re-enable button
+                loader.style.display = 'none';
+                analyzeButton.disabled = false;
+                // Clear the recorded blob to avoid re-analyzing the same recording by mistake
+                recordedBlob = null; 
+                recordingStatus.textContent = '';
+            }
+        });
+
+        // Initialize button states on page load
+        updateButtonStates(false, false);
+    </script>
+</body>
+</html>
