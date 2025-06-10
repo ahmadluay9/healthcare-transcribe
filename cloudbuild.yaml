@@ -39,7 +39,7 @@ images:
 
 # Specify a machine type with more memory to prevent the build from failing.
 options:
-  machineType: 'E2_HIGHCPU_16' # Changed from E2_MEDIUM
+  machineType: 'E2_MEDIUM' # Changed from E2_MEDIUM
   logging: CLOUD_LOGGING_ONLY
 
 # Timeout for the build
