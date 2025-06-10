@@ -36,7 +36,7 @@ images:
 
 # Define substitutions for reusable variables
 substitutions:
-  _SERVICE_NAME: healthcare-transcription'
+  _SERVICE_NAME: 'healthcare-transcription'
   _REPOSITORY: 'transcribe-medical' # The name of your Artifact Registry repository
   _LOCATION: 'asia-southeast2'    # The region for Artifact Registry and Cloud Run
 
