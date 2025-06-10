@@ -1,46 +1,45 @@
 steps:
-  # 1. Build the Docker image. Cloud Build will automatically use the Dockerfile
-  #    in the root of your repository.
+  # 1. Build the container image
   - name: 'gcr.io/cloud-builders/docker'
-    args:
-      - 'build'
-      - '-t'
-      - 'asia-southeast2-docker.pkg.dev/${PROJECT_ID}/transcribe-medical/flask-app:${COMMIT_SHA}'
-      - '-t'
-      - 'asia-southeast2-docker.pkg.dev/${PROJECT_ID}/transcribe-medical/flask-app:latest'
-      - '.'
-    id: 'Build Docker Image'
+    args: ['build', '-t', '${_LOCATION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE_NAME}:${COMMIT_SHA}', '.']
 
-  # 2. Deploy to Cloud Run. This step runs after the image is successfully built
-  #    and pushed by Cloud Build (due to the 'images' block below).
+  # 2. Push the container image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '${_LOCATION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE_NAME}:${COMMIT_SHA}']
+
+  # 3. Deploy the container image to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    entrypoint: 'gcloud'
+    entrypoint: gcloud
     args:
       - 'run'
       - 'deploy'
-      - 'troubleshooting-assistant' # The name of your Cloud Run service
+      - '${_SERVICE_NAME}'
       - '--image'
-      - 'asia-southeast2-docker.pkg.dev/${PROJECT_ID}/transcribe-medical/flask-app:${COMMIT_SHA}'
+      - '${_LOCATION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE_NAME}:${COMMIT_SHA}'
       - '--region'
-      - 'asia-southeast2'
+      - '${_LOCATION}'
       - '--platform'
       - 'managed'
+      # Allow public access to the web app
       - '--allow-unauthenticated'
-      # '--port=8080' is not needed because Cloud Run defaults to 8080 and your Dockerfile uses the $PORT variable.
-      - '--set-env-vars=PROJECT_ID=${PROJECT_ID}'
-    id: 'Deploy to Cloud Run'
+      # Increase memory and timeout for audio processing and AI calls
+      - '--memory=2Gi'
+      - '--timeout=600s' # 10 minutes, STT API can be slow
+      # IMPORTANT: Grant the service necessary permissions.
+      # The Cloud Run service needs a service account with permissions for
+      # Speech-to-Text and Vertex AI. You can attach one with the line below.
+      # - '--service-account=your-service-account@${PROJECT_ID}.iam.gserviceaccount.com'
 
-# The 'images' block tells Cloud Build to automatically push the built image
-# to these locations upon a successful build. This replaces the need for
-# explicit 'docker push' steps.
+# Store the image name for other build steps and for viewing in build history
 images:
-  - 'asia-southeast2-docker.pkg.dev/${PROJECT_ID}/transcribe-medical/flask-app:${COMMIT_SHA}'
-  - 'asia-southeast2-docker.pkg.dev/${PROJECT_ID}/transcribe-medical/flask-app:latest'
+  - '${_LOCATION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE_NAME}:${COMMIT_SHA}'
 
-# Specify a machine type with more memory to prevent the build from failing.
+# Define substitutions for reusable variables
+substitutions:
+  _SERVICE_NAME: 'audio-analysis-service'
+  _REPOSITORY: 'transcribe-medical' # The name of your Artifact Registry repository
+  _LOCATION: 'asia-southeast2'    # The region for Artifact Registry and Cloud Run
+
+# Configure logging to go to Cloud Logging for better visibility
 options:
-# Changed from E2_MEDIUM
   logging: CLOUD_LOGGING_ONLY
-
-# Timeout for the build
-timeout: '1200s' # 20 minutes

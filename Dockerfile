@@ -1,60 +1,27 @@
-# --- Stage 1: The Builder ---
-# This stage installs all dependencies into a virtual environment.
-FROM python:3.11-slim as builder
-
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
-
-WORKDIR /app
-
-# Upgrade pip and create a virtual environment
-RUN python -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
-
-# Copy requirements and install them into the virtual environment
-COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
-
-
-# --- Stage 2: The Final Production Image ---
-# Start from a clean base image.
+# 1. Use an official Python runtime as a parent image
 FROM python:3.11-slim
 
-# Set the same environment variables
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
-ENV PORT 8080
-
+# 2. Set the working directory in the container
 WORKDIR /app
 
-# Install only necessary system dependencies (not build tools)
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg && \
-    rm -rf /var/lib/apt/lists/*
+# 3. Install system dependencies required by your app
+# - Install ffmpeg for pydub audio processing
+# - Use --no-install-recommends to keep the image slim
+# - Clean up apt cache to reduce final image size
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy the virtual environment from the builder stage
-COPY --from=builder /opt/venv /opt/venv
+# 4. Copy the requirements file and install Python dependencies
+# This is done in a separate step to leverage Docker layer caching.
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Create the non-root user and grant permissions
-RUN groupadd --system --gid 1000 www-data && \
-    useradd --system --uid 1000 --gid www-data www-data && \
-    mkdir -p /app/app_logs /app/uploads && \
-    chown -R www-data:www-data /app/app_logs /app/uploads
-
-# Copy the application code
+# 5. Copy the rest of your application's code into the container
 COPY . .
-RUN chown -R www-data:www-data /app
 
-# Switch to the non-root user
-USER www-data
-
-# Set the PATH to include the virtual environment's binaries
-ENV PATH="/opt/venv/bin:$PATH"
-
-# Expose the port
-EXPOSE ${PORT}
-
-# Run the application
-CMD exec gunicorn --bind :${PORT} --workers 2 --threads 4 --log-level=info "app:app"
+# 6. Define the command to run your app using a production-grade WSGI server
+# - Cloud Run automatically sets the PORT environment variable. Gunicorn will listen on it.
+# - Use 'exec' to ensure signals are passed correctly.
+# - The timeout is set to 0 (disabled) to handle long-running transcription jobs.
+# - The number of workers and threads can be tuned for performance.
+CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 app:app
